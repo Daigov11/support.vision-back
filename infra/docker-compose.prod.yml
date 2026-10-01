@@ -1,0 +1,81 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    # Sin "ports": en producción Postgres NUNCA se publica al host ni a Internet, solo es
+    # alcanzable desde otros contenedores de esta misma red de Compose (regla crítica #3).
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  coturn:
+    image: coturn/coturn:4.6.2-alpine
+    restart: unless-stopped
+    # Mismo mecanismo de secreto compartido que en desarrollo (ver infra/coturn/README.md):
+    # TURN_EXTERNAL_IP debe ser la IP pública real del VPS para que el relay sea alcanzable.
+    command: >
+      turnserver
+      --listening-port=3478
+      --min-port=${TURN_RELAY_MIN_PORT:-49160}
+      --max-port=${TURN_RELAY_MAX_PORT:-49200}
+      --realm=${TURN_REALM:-support.apiworking.com.pe}
+      --use-auth-secret
+      --static-auth-secret=${TURN_SHARED_SECRET}
+      --external-ip=${TURN_EXTERNAL_IP}
+      --fingerprint
+      --no-cli
+      --no-tls
+      --no-dtls
+      --log-file=stdout
+      --simple-log
+    ports:
+      - "${TURN_PORT:-3478}:3478/udp"
+      - "${TURN_PORT:-3478}:3478/tcp"
+      - "${TURN_RELAY_MIN_PORT:-49160}-${TURN_RELAY_MAX_PORT:-49200}:${TURN_RELAY_MIN_PORT:-49160}-${TURN_RELAY_MAX_PORT:-49200}/udp"
+
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      coturn:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      # Único origen permitido en producción: el panel servido por Nginx en este dominio.
+      Cors__AllowedOrigin: ${CORS_ALLOWED_ORIGIN}
+      Turn__SharedSecret: ${TURN_SHARED_SECRET}
+      Turn__Realm: ${TURN_REALM:-support.apiworking.com.pe}
+      Turn__PublicHost: ${TURN_PUBLIC_HOST}
+      Turn__Port: ${TURN_PORT:-3478}
+      Jwt__SigningKey: ${JWT_SIGNING_KEY}
+      Jwt__Issuer: ${JWT_ISSUER:-vision-support}
+      Jwt__Audience: ${JWT_AUDIENCE:-vision-support-clients}
+      Jwt__AccessTokenMinutes: ${JWT_ACCESS_TOKEN_MINUTES:-15}
+      Jwt__RefreshTokenDays: ${JWT_REFRESH_TOKEN_DAYS:-14}
+      # Bootstrap del primer Admin (solo se usa si la tabla Users está vacía). Tras el primer
+      # login, cambia esta contraseña desde el propio panel y puedes dejar estas dos variables
+      # vacías en despliegues futuros.
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      Diagnostics__MaxEventsPerDevice: ${DIAGNOSTICS_MAX_EVENTS_PER_DEVICE:-200}
+    # Solo loopback: el Nginx nativo del VPS lo alcanza por 127.0.0.1, nunca queda expuesto
+    # directamente a Internet (regla crítica #6).
+    ports:
+      - "127.0.0.1:${SERVER_HTTP_PORT:-5080}:8080"
+
+volumes:
+  postgres_data:

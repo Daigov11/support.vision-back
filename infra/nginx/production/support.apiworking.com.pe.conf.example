@@ -1,0 +1,21 @@
+# Vhost de Nginx (nativo del VPS, fuera de Docker) para el panel web estático.
+# Sigue el mismo patrón que otros sitios estáticos ya existentes en el servidor
+# (SPA servida directo por Nginx desde dist/, sin contenedor "web").
+#
+# Instalar en el VPS como /etc/nginx/sites-available/support.apiworking.com.pe,
+# enlazar en sites-enabled y luego ejecutar:
+#   certbot --nginx -d support.apiworking.com.pe
+# (certbot reescribe este archivo añadiendo el bloque 443 con el certificado real).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name support.apiworking.com.pe;
+
+    root /var/www/support-vision-front/dist;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+}

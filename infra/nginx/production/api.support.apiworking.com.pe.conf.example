@@ -1,0 +1,26 @@
+# Vhost de Nginx (nativo del VPS, fuera de Docker) para la API + SignalR.
+# Sigue el mismo patrón que otros proxys con WebSocket ya existentes en el servidor:
+# proxy_pass al backend por loopback, con soporte de Upgrade/Connection para SignalR/WSS.
+#
+# Instalar en el VPS como /etc/nginx/sites-available/api.support.apiworking.com.pe,
+# enlazar en sites-enabled y luego ejecutar:
+#   certbot --nginx -d api.support.apiworking.com.pe
+# (certbot reescribe este archivo añadiendo el bloque 443 con el certificado real).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name api.support.apiworking.com.pe;
+
+    location / {
+        proxy_pass http://127.0.0.1:5080;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

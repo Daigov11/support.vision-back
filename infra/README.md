@@ -88,3 +88,32 @@ vez de `http://localhost:${WEB_PORT}`.
   `RemoteHub.GetTurnCredentials(sessionId)`, solo a quien ya esté autorizado en esa sesión. Ver
   `coturn/README.md` para configurar `TURN_PUBLIC_HOST`/`TURN_EXTERNAL_IP` en LAN local o VPS,
   y `docs/architecture.md` para el detalle del mecanismo.
+
+## Producción
+
+El despliegue de producción (dominio `support.apiworking.com.pe` / `api.support.apiworking.com.pe`)
+NO usa el servicio `web` de `docker-compose.yml` ni publica el puerto de PostgreSQL. En su lugar:
+
+- `docker-compose.prod.yml` levanta solo `postgres` (sin puerto publicado), `coturn` y `server`
+  (`server` escucha únicamente en `127.0.0.1:${SERVER_HTTP_PORT}`, nunca en todas las interfaces).
+- El panel se compila con Vite (`VITE_API_BASE_URL`/`VITE_HUB_URL` apuntando al dominio de la API)
+  y el `dist/` resultante se sirve directamente con el Nginx nativo del servidor, sin contenedor.
+- `nginx/production/*.conf.example` son los vhosts de Nginx (fuera de Docker) para ambos dominios:
+  uno estático para el panel, otro con soporte de `Upgrade`/`Connection` para la API + SignalR.
+  TLS se gestiona con `certbot --nginx`, igual que el resto de sitios del servidor.
+- `.env.production.example` documenta las variables requeridas; cópialo a `infra/.env` en el
+  servidor (nunca en el repositorio) con valores reales generados para ese despliegue.
+
+```bash
+cd infra
+cp .env.production.example .env   # editar con secretos reales, solo en el servidor
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+```
+
+Para actualizar un despliegue existente tras un `git pull`:
+
+```bash
+cd /opt/vision-support
+git pull
+docker compose -f infra/docker-compose.prod.yml --env-file infra/.env up -d --build
+```
