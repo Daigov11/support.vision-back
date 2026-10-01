@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>VisionSupport.Server.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Da acceso a los tipos de ASP.NET Core (SignalR, Http.Features, etc.) sin necesitar
+         un paquete NuGet por cada uno: el proyecto principal es Sdk="Microsoft.NET.Sdk.Web"
+         y ya los trae; este es un proyecto de test normal, así que referenciamos el shared
+         framework directamente. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <!-- Sqlite (no el proveedor InMemory de EF Core) porque las pruebas ejercitan
+         ExecuteUpdateAsync, que el proveedor InMemory no soporta. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.10" />
+    <!-- TestServer real para probar [Authorize]/[Authorize(Roles=...)] de punta a punta por HTTP
+         (ver TestApiFactory.cs) — instanciar un controlador directamente no evalúa esos atributos. -->
+    <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="8.0.10" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VisionSupport.Server.csproj" />
+  </ItemGroup>
+
+</Project>

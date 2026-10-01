@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-visionsupport}
+      POSTGRES_USER: ${POSTGRES_USER:-visionsupport}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme_dev_only}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-visionsupport}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  coturn:
+    image: coturn/coturn:4.6.2-alpine
+    restart: unless-stopped
+    # Autenticación por secreto compartido (TURN REST API), NO usuarios estáticos: el backend
+    # (TurnCredentialService) emite username/credential efímeros firmados con este mismo secreto.
+    # TURN_EXTERNAL_IP es la IP que Coturn anuncia en las respuestas de relay: tu IP LAN en local
+    # (para que el emulador/navegador puedan alcanzarla), o la IP pública en un VPS. Sin ella,
+    # Coturn solo conoce su IP interna del contenedor, inalcanzable desde fuera de Docker.
+    command: >
+      turnserver
+      --listening-port=3478
+      --min-port=${TURN_RELAY_MIN_PORT:-49160}
+      --max-port=${TURN_RELAY_MAX_PORT:-49200}
+      --realm=${TURN_REALM:-visionsupport.local}
+      --use-auth-secret
+      --static-auth-secret=${TURN_SHARED_SECRET:-changeme_dev_only_turn_secret}
+      ${TURN_EXTERNAL_IP:+--external-ip=${TURN_EXTERNAL_IP}}
+      --fingerprint
+      --no-cli
+      --no-tls
+      --no-dtls
+      --log-file=stdout
+      --simple-log
+    ports:
+      - "${TURN_PORT:-3478}:3478/udp"
+      - "${TURN_PORT:-3478}:3478/tcp"
+      - "${TURN_RELAY_MIN_PORT:-49160}-${TURN_RELAY_MAX_PORT:-49200}:${TURN_RELAY_MIN_PORT:-49160}-${TURN_RELAY_MAX_PORT:-49200}/udp"
+
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      coturn:
+        condition: service_started
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: Host=postgres;Port=5432;Database=${POSTGRES_DB:-visionsupport};Username=${POSTGRES_USER:-visionsupport};Password=${POSTGRES_PASSWORD:-changeme_dev_only}
+      # CORS_ALLOWED_ORIGIN se define en infra/.env como "http://localhost:${WEB_PORT}" para que
+      # cambiar un solo valor (WEB_PORT) baste y nunca queden desincronizados el puerto real del
+      # panel y el origen que el backend acepta (docker compose SÍ resuelve ${WEB_PORT} dentro de
+      # un valor de .env, pero NO admite anidar "${A:-${B:-c}}" aquí en el YAML, de ahí que la
+      # derivación viva en .env y no en este archivo). El 5173 de abajo es solo el último recurso
+      # si ni .env ni el entorno definen nada.
+      Cors__AllowedOrigin: ${CORS_ALLOWED_ORIGIN:-http://localhost:5173}
+      # Credenciales TURN efímeras (ver server/Services/TurnCredentialService.cs). TURN_PUBLIC_HOST
+      # debe ser una IP/host alcanzable por Android y el navegador: tu IP LAN en local, la IP
+      # pública en un VPS (ver infra/README.md → "Coturn").
+      Turn__SharedSecret: ${TURN_SHARED_SECRET:-changeme_dev_only_turn_secret}
+      Turn__Realm: ${TURN_REALM:-visionsupport.local}
+      Turn__PublicHost: ${TURN_PUBLIC_HOST:-localhost}
+      Turn__Port: ${TURN_PORT:-3478}
+      # Autenticación de técnicos/admins por JWT (ver server/Services/TokenService.cs). Separada
+      # por completo del deviceCode+pairingKey de Android.
+      Jwt__SigningKey: ${JWT_SIGNING_KEY:-changeme_dev_only_jwt_signing_key_do_not_use_in_prod_32bytes_min}
+      Jwt__Issuer: ${JWT_ISSUER:-vision-support-dev}
+      Jwt__Audience: ${JWT_AUDIENCE:-vision-support-clients}
+      Jwt__AccessTokenMinutes: ${JWT_ACCESS_TOKEN_MINUTES:-15}
+      Jwt__RefreshTokenDays: ${JWT_REFRESH_TOKEN_DAYS:-14}
+      # Bootstrap del primer Admin (ver server/Services/AdminBootstrapper.cs): solo se usa si la
+      # tabla Users está vacía. Vacío por defecto a propósito — no hay cuenta default.
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      # Retención de DeviceDiagnosticEvent por dispositivo (ver server/Options/DiagnosticsOptions.cs).
+      Diagnostics__MaxEventsPerDevice: ${DIAGNOSTICS_MAX_EVENTS_PER_DEVICE:-200}
+    ports:
+      - "${SERVER_HTTP_PORT:-5080}:8080"
+
+  web:
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: http://localhost:${SERVER_HTTP_PORT:-5080}
+        VITE_HUB_URL: http://localhost:${SERVER_HTTP_PORT:-5080}/hubs/remote
+    restart: unless-stopped
+    depends_on:
+      - server
+    ports:
+      - "${WEB_PORT:-5173}:80"
+    volumes:
+      - ./nginx/web.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  postgres_data:

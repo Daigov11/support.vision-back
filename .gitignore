@@ -1,0 +1,22 @@
+# .NET
+**/bin/
+**/obj/
+
+# Node (por si algún script auxiliar en docs/infra lo necesita)
+**/node_modules/
+
+# Secretos y configuración local — NUNCA subir infra/.env real ni certificados/claves.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.keystore
+*.jks
+
+# Editor / SO
+.DS_Store
+.idea/
+*.iml
+*.user

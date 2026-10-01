@@ -1,0 +1,38 @@
+# Configuración de referencia para Coturn en formato de archivo (equivalente al `command:`
+# de línea de comandos usado en infra/docker-compose.yml). Útil si corres Coturn FUERA de
+# Docker (p. ej. como servicio systemd en un VPS) en vez de con Docker Compose.
+#
+# Sustituye los placeholders por los mismos valores que uses en infra/.env
+# (TURN_SHARED_SECRET, TURN_REALM, TURN_RELAY_MIN_PORT, TURN_RELAY_MAX_PORT, TURN_EXTERNAL_IP).
+
+listening-port=3478
+
+# Rango de puertos para relay de medios (= TURN_RELAY_MIN_PORT / TURN_RELAY_MAX_PORT).
+min-port=49160
+max-port=49200
+
+# Autenticación por secreto compartido (TURN REST API), NO usuarios estáticos: el backend
+# (server/Services/TurnCredentialService.cs) genera username/credential efímeros con este
+# mismo secreto. Genera uno real con `openssl rand -hex 32`; el de abajo es solo un ejemplo.
+use-auth-secret
+static-auth-secret=CHANGE_ME_SHARED_SECRET
+
+realm=visionsupport.local
+
+# IP que Coturn anuncia en sus respuestas de relay: tu IP LAN en desarrollo local, o la IP
+# pública del VPS en producción. Sin esto, Coturn solo conoce su IP de red interna/contenedor,
+# inalcanzable desde fuera.
+external-ip=CHANGE_ME_LAN_OR_PUBLIC_IP
+
+fingerprint
+no-cli
+
+# TLS/DTLS deshabilitados en este hito (equivalente a --no-tls --no-dtls). Antes de exponer
+# Coturn fuera de tu red local, configura certificados reales y quita estas dos líneas:
+no-tls
+no-dtls
+# cert=/etc/coturn/turn_server_cert.pem
+# pkey=/etc/coturn/turn_server_pkey.pem
+
+log-file=stdout
+simple-log
